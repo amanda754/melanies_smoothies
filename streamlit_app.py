@@ -1,9 +1,7 @@
 # Import python packages
 import streamlit as st
-from snowflake.snowpark.context import get_active_session
 from snowflake.snowpark.functions import col
 import requests
-
 # Write directly to the app
 st.title("🥤Customize Your Smoothie!🥤")
 st.write("Choose the fruits you want in your Smoothie!")
@@ -11,51 +9,43 @@ st.write("Choose the fruits you want in your Smoothie!")
 name_on_order = st.text_input('Name on Smoothie')
 st.write('The name on your smoothie will be:', name_on_order)
 
-# Get the Snowpark session (only once!)
-session = get_active_session()
+# Get the Snowpark session
+cnx = st.connection("snowflake")
+session = cnx.session()
 
 # Query the fruit names
-my_dataframe = session.table("smoothies.public.fruit_options").select(col("FRUIT_NAME"), col("SEARCH_ON"))
+my_dataframe = session.table("smoothies.public.fruit_options").select(col("FRUIT_NAME"))
 
-# Convert to Pandas for easier manipulation
-pd_df = my_dataframe.to_pandas()
+# Convert to a list of strings
+fruit_list = [row["FRUIT_NAME"] for row in my_dataframe.collect()]
 
 # Use in Streamlit multiselect
 ingredients_list = st.multiselect(
-    'Choose up to 5 ingredients:',
-    pd_df['FRUIT_NAME'].tolist(),
-    max_selections=5
+'Choose up to 5 ingredients:',
+my_dataframe,
+max_selections=5
 )
-
 if ingredients_list:
-    # Cleanly join ingredients into a single string
-    ingredients_string = ' '.join(ingredients_list)
 
-    for fruit_chosen in ingredients_list:
-        # Get the corresponding search value
-        search_on_row = pd_df.loc[pd_df['FRUIT_NAME'] == fruit_chosen, 'SEARCH_ON']
-        search_on = search_on_row.iloc[0] if not search_on_row.empty else fruit_chosen
+ingredients_string = ''
 
-        st.subheader(f"{fruit_chosen} Nutrition Information")
+for fruit_chosen in ingredients_list:
+ingredients_string += fruit_chosen + ' '
+        smoothiefroot_response = requests.get("https://my.smoothiefroot.com/api/fruit/watermelon")
+        st.subheader(fruit_chosen + ' Nutrition Information')
+        smoothiefroot_response = requests.get("https://my.smoothiefroot.com/api/fruit/" + fruit_chosen)
+sf_df = st.dataframe(data=smoothiefroot_response.json(), use_container_width=True)
 
-        # Safely call the SmoothieFroot API
-        try:
-            response = requests.get("https://my.smoothiefroot.com/api/fruit/" + search_on, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            st.dataframe(data['nutrition'], use_container_width=True)
-        except requests.exceptions.RequestException as e:
-            st.error(f"Could not retrieve nutrition info for {fruit_chosen}.")
-            st.caption(f"Error: {e}")
+#st.write(ingredients_string)
 
-    # Prepare SQL insert statement
-    my_insert_stmt = f"""
-        INSERT INTO smoothies.public.orders(ingredients, name_on_order)
-        VALUES ('{ingredients_string}', '{name_on_order}')
-    """
+my_insert_stmt = """ insert into smoothies.public.orders(ingredients, name_on_order)
+           values ('""" + ingredients_string + """','"""+name_on_order+"""')"""
 
-    # Submit order
-    time_to_insert = st.button("Submit Order")
-    if time_to_insert:
-        session.sql(my_insert_stmt).collect()
-        st.success(f"Your Smoothie is ordered, {name_on_order}!", icon="✅")
+#st.write(my_insert_stmt)
+time_to_insert = st.button("Submit Order")
+if time_to_insert:
+session.sql(my_insert_stmt).collect()
+st.success("Your Smoothie is ordered, " + name_on_order + "!", icon="✅")
+
+
+~
